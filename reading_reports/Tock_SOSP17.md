@@ -14,7 +14,7 @@ Tock：一个微控制器操作系统
     -  Rust语言是一种类型安全的语言，其内存效率和性能接近于C。Rust允许Tock用类型安全的接口封装其大部分内核。
 - Tock的组成部分/隔离机制
     -   Capsules
-        -   Capsules由Rust语言编写，不同功能的Capsules有着不同的类型。Capsules在编译时强制执行隔离，capsules之间的隔离可以使得部分capsules出现错误行为或者存在bug时保护其他的capsules。Capsules只能访问部分被授权的资源，常用于设备驱动程序，协议和计时器等。此外，Capsules消耗最少的内存并且具有可忽略的或没有计算开销。
+        -   Capsules由Rust语言编写，不同功能的Capsules有着不同的类型。Capsules在编译时强制执行隔离，capsules之间的隔离可以使得部分capsules出现错误行为或者存在bug时保护其他的capsules。Capsules只能访问部分被授权的资源，常用于设备驱动程序，协议和计时器等。此外，Capsules消耗最少的内存并且具有可忽略的开销或没有计算开销。
         -   Tock有两种capsules，一种是值得信赖的，该capsules使用Rust语言编写，链接到内核，另外一种是完全不可信的，用于处理任何语言。可信的capsule本质上是一个使用共享栈的Rust模块事件驱动。
         -   Capsules无法生成新事件。它们通过正常的控制流直接与内核的其余部分进行交互。这有两个好处。首先，它减少了开销，因为使用事件需要Capsules之间的每次交互都要通过事件调度程序。其次，Tock可以静态分配事件队列，因为在编译时已知事件数。与TinyOS如何管理其任务队列类似，这可以防止有问题的Capsules排队许多事件，填充队列，并通过耗尽队列资源来损害可靠性
     -   Process
