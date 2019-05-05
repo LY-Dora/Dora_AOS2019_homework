@@ -13,7 +13,7 @@
 
 ### 对 µCore 的熟悉
 
-我通过对 [GitBook](https://chyyuu.gitbooks.io/ucore_os_docs/content/) 和杨松涛本科笔记的学习，基本完成了 µCore 中六个实验的练习与对 µCore 的理解。（ µCore 没有实现challenge）。
+我通过对 [GitBook](https://chyyuu.gitbooks.io/ucore_os_docs/content/) 和杨松涛本科笔记的学习，基本实现了 µCore 中六个实验的代码练习与对其的理解。（ µCore 没有实现challenge）。
 后我将在**0x4小节**阐述对 µCore 的理解和具体分析，以及附上代码链接[µCore](https://github.com/LY-Dora/Dora_AOS2019_homework/tree/master/ucore_os)。
 
 ### 对 SGX 移植的评估
