@@ -56,7 +56,7 @@ Address Space Layout Randomization (ASLR) 是Linux kernel上最常见的安全�
 
 3. Canary
 
-即使拥有了ASLR以及W^X两个机制，只能防住代码注入攻击。然而攻击者可以通过篡改return address进行代码重用攻击。canary是一种防御缓冲区溢出从而实现代码重用攻击的有效保护。通常需要编译器和kernel共同支持才能够实现。通常由kernel生成随机值，在缓冲区与ebp之间引入从段寄存器获取的随机保护值。如果canary被修改直接触发中断异常。此外，在kernel
+即使拥有了ASLR以及W^X两个机制，只能防住代码注入攻击。然而攻击者可以通过篡改return address进行代码重用攻击。canary是一种防御缓冲区溢出从而实现代码重用攻击的有效保护。通常需要编译器和kernel共同支持才能够实现。通常由kernel生成随机值，在缓冲区与ebp之间引入从段寄存器获取的随机保护值。如果canary被修改直接触发中断异常。
 
 4. Mem Init
 
