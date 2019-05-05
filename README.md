@@ -2,8 +2,9 @@
 The homeworks on the Advanced Operating System course at Tsinghua University.
 
 ### Paper Reading Reports
-- Multiprogramming a 64 kB Computer Safely and Efficiently (SOSP 2017)
-- Non-Sclalable Locks Are Dangerous (Linux Symposium 2012)
+- [Multiprogramming a 64 kB Computer Safely and Efficiently (SOSP 2017)](https://github.com/LY-Dora/Dora_AOS2019_homework/blob/master/reading_reports/Tock_SOSP17.md)
+- [Non-Sclalable Locks Are Dangerous (Linux Symposium 2012)](https://github.com/LY-Dora/Dora_AOS2019_homework/blob/master/reading_reports/Non_scalable_lock_is_dangerous.md)
 
 ### Project
-- ucore-os
+- [ucore-os](https://github.com/LY-Dora/Dora_AOS2019_homework/tree/master/ucore_os)
+- [Mid-Report](https://github.com/LY-Dora/Dora_AOS2019_homework/blob/master/ucore_os/Mid-Report.md)
