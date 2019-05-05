@@ -1,0 +1,1700 @@
+diff -uNr lab3/kern/debug/kdebug.c lab4/kern/debug/kdebug.c
+--- lab3/kern/debug/kdebug.c	2019-05-05 11:09:32.820714653 +0800
++++ lab4/kern/debug/kdebug.c	2019-04-19 09:31:14.000000000 +0800
+@@ -305,19 +305,5 @@
+       *           NOTICE: the calling funciton's return addr eip  = ss:[ebp+4]
+       *                   the calling funciton's ebp = ss:[ebp]
+       */
+-      uint32_t ebp = read_ebp();
+-      uint32_t eip=read_eip();
+-      for (int i = 0; i < STACKFRAME_DEPTH; i ++) {
+-        cprintf("ebp:0x%08x eip:0x%08x args:", ebp, eip);
+-        uint32_t *fun_stack = (uint32_t *)ebp ;
+-        for (int j = 2; j < 6; j ++) {
+-            cprintf("0x%08x ", fun_stack[j]);
+-        }
+-        cprintf("\n");
+-        print_debuginfo(eip - 1);
+-        if(fun_stack[0]==0) break;
+-        eip = fun_stack[1];
+-        ebp = fun_stack[0];
+-    }
+ }
+ 
+diff -uNr lab3/kern/init/init.c lab4/kern/init/init.c
+--- lab3/kern/init/init.c	2019-05-03 20:45:20.300907953 +0800
++++ lab4/kern/init/init.c	2019-04-19 09:31:14.000000000 +0800
+@@ -11,6 +11,7 @@
+ #include <vmm.h>
+ #include <ide.h>
+ #include <swap.h>
++#include <proc.h>
+ #include <kmonitor.h>
+ 
+ int kern_init(void) __attribute__((noreturn));
+@@ -37,7 +38,8 @@
+     idt_init();                 // init interrupt descriptor table
+ 
+     vmm_init();                 // init virtual memory management
+-
++    proc_init();                // init process table
++    
+     ide_init();                 // init ide devices
+     swap_init();                // init swap
+ 
+@@ -47,9 +49,8 @@
+     //LAB1: CAHLLENGE 1 If you try to do it, uncomment lab1_switch_test()
+     // user/kernel mode switch test
+     //lab1_switch_test();
+-
+-    /* do nothing */
+-    while (1);
++    
++    cpu_idle();                 // run idle process
+ }
+ 
+ void __attribute__((noinline))
+diff -uNr lab3/kern/mm/default_pmm.c lab4/kern/mm/default_pmm.c
+--- lab3/kern/mm/default_pmm.c	2019-05-05 11:42:31.513509778 +0800
++++ lab4/kern/mm/default_pmm.c	2019-04-19 09:31:14.000000000 +0800
+@@ -111,90 +111,54 @@
+     for (; p != base + n; p ++) {
+         assert(PageReserved(p));
+         p->flags = p->property = 0;
+-        SetPageProperty(p);
+         set_page_ref(p, 0);
+-        list_add_before(&free_list, &(p->page_link));
+     }
+     base->property = n;
+-    // SetPageProperty(base);
+-    // list_add_before(&free_list, &(p->page_link));
++    SetPageProperty(base);
+     nr_free += n;
+-    // list_add(&free_list, &(base->page_link));
++    list_add(&free_list, &(base->page_link));
+ }
+ 
+ static struct Page *
+ default_alloc_pages(size_t n) {
+     assert(n > 0);
+-    if (n > nr_free)     return NULL;
+-//    struct Page *page = NULL;
++    if (n > nr_free) {
++        return NULL;
++    }
++    struct Page *page = NULL;
+     list_entry_t *le = &free_list;
+     while ((le = list_next(le)) != &free_list) {
+         struct Page *p = le2page(le, page_link);
+         if (p->property >= n) {
+-            list_entry_t *next;
+-            for(int i=0;i<n;i++)
+-            {
+-                struct Page *page = le2page(le, page_link);
+-                SetPageReserved(page);
+-                ClearPageProperty(page);
+-                next=list_next(le);
+-                list_del(le);
+-                le = next;
+-            }
+-            if(p->property > n)
+-                (le2page(le,page_link))->property = p->property - n;
+-            nr_free -= n;
+-            return p;
+-            // page = p;
+-            // break;
++            page = p;
++            break;
+         }
+     }
+-    /*  if (page != NULL) {
+-          list_del(&(page->page_link));
+-          if (page->property > n) {
+-              struct Page *p = page + n;
+-              p->property = page->property - n;
+-              SetPageProperty(p);
+-              list_add_after(&(page->page_link), &(p->page_link));
+-      }
+-          list_del(&(page->page_link));
+-          nr_free -= n;
+-          ClearPageProperty(page);
+-      } */
+-    return NULL;
++    if (page != NULL) {
++        list_del(&(page->page_link));
++        if (page->property > n) {
++            struct Page *p = page + n;
++            p->property = page->property - n;
++            list_add(&free_list, &(p->page_link));
++    }
++        nr_free -= n;
++        ClearPageProperty(page);
++    }
++    return page;
+ }
+-/*
++
+ static void
+ default_free_pages(struct Page *base, size_t n) {
+     assert(n > 0);
+-//    struct Page *p = base;
+-    assert(PageReserved(base));
+-
+-    list_entry_t *le = &free_list;
+-    while ((le = list_next(le)) != &free_list) {
+-        if ((le2page(le, page_link)) > base) {
+-            break;
+-        }
+-    }
+-    list_entry_t *last_head = le, *insert_prev = list_prev(le);
+-    while ((last_head = list_prev(last_head)) != &free_list) {
+-        if ((le2page(last_head, page_link))->property > 0) {
+-            break;
+-        }
+-    }
+-
++    struct Page *p = base;
+     for (; p != base + n; p ++) {
+-        ClearPageReserved(p);
+-        SetPageProperty(p);
+-        p->property = 0;
+-        list_add_before(le, &(p->page_link));
+-//        assert(!PageReserved(p) && !PageProperty(p));
+-//        p->flags = 0;
+-//        set_page_ref(p, 0);
++        assert(!PageReserved(p) && !PageProperty(p));
++        p->flags = 0;
++        set_page_ref(p, 0);
+     }
+     base->property = n;
+-    SetPageProperty(base);//inital
+-    le = list_next(&free_list);
++    SetPageProperty(base);
++    list_entry_t *le = list_next(&free_list);
+     while (le != &free_list) {
+         p = le2page(le, page_link);
+         le = list_next(le);
+@@ -210,57 +174,8 @@
+             list_del(&(p->page_link));
+         }
+     }
+-    nr_free += n;//insert,if can merge
+-    le = list_next(&free_list);
+-    while (le != &free_list) {
+-        p = le2page(le, page_link);
+-        if (base + base->property <= p) {
+-            assert(base + base->property != p);
+-            break;
+-        }
+-        le = list_next(le);
+-    } //insert,if the freeing block is before one free block
+-    list_add_before(le, &(base->page_link));//insert before le
+-}*/
+-static void
+-default_free_pages(struct Page *base, size_t n) {
+-    assert(n > 0);
+-    assert(PageReserved(base));
+-
+-    list_entry_t *le = &free_list;
+-    while ((le = list_next(le)) != &free_list) {
+-        if ((le2page(le, page_link)) > base) {
+-            break;
+-        }
+-    }
+-    list_entry_t *last_head = le, *insert_prev = list_prev(le);
+-    while ((last_head = list_prev(last_head)) != &free_list) {
+-        if ((le2page(last_head, page_link))->property > 0) {
+-            break;
+-        }
+-    }
+-
+-    struct Page *p = base, *block_header;
+-    set_page_ref(base, 0);
+-    for (; p != base + n; ++p) {
+-        ClearPageReserved(p);
+-        SetPageProperty(p);
+-        p->property = 0;
+-        list_add_before(le, &(p->page_link));
+-    }
+-    if ((last_head == &free_list) || ((le2page(insert_prev, page_link)) != base - 1)) {
+-        base->property = n;
+-        block_header = base;
+-    } else {
+-        block_header = le2page(last_head, page_link);
+-        block_header->property += n;
+-    }
+-    struct Page *le_page = le2page(le, page_link);
+-    if ((le != &free_list) && (le_page == base + n)) {
+-        block_header->property += le_page->property;
+-        le_page->property = 0;
+-    }
+     nr_free += n;
++    list_add(&free_list, &(base->page_link));
+ }
+ 
+ static size_t
+@@ -319,7 +234,7 @@
+     free_page(p2);
+ }
+ 
+-// LAB2: below code is used to check the first fit allocation algorithm (your EXERCISE 1)
++// LAB2: below code is used to check the first fit allocation algorithm (your EXERCISE 1) 
+ // NOTICE: You SHOULD NOT CHANGE basic_check, default_check functions!
+ static void
+ default_check(void) {
+@@ -385,11 +300,12 @@
+ }
+ 
+ const struct pmm_manager default_pmm_manager = {
+-        .name = "default_pmm_manager",
+-        .init = default_init,
+-        .init_memmap = default_init_memmap,
+-        .alloc_pages = default_alloc_pages,
+-        .free_pages = default_free_pages,
+-        .nr_free_pages = default_nr_free_pages,
+-        .check = default_check,
++    .name = "default_pmm_manager",
++    .init = default_init,
++    .init_memmap = default_init_memmap,
++    .alloc_pages = default_alloc_pages,
++    .free_pages = default_free_pages,
++    .nr_free_pages = default_nr_free_pages,
++    .check = default_check,
+ };
++
+diff -uNr lab3/kern/mm/kmalloc.c lab4/kern/mm/kmalloc.c
+--- lab3/kern/mm/kmalloc.c	1970-01-01 08:00:00.000000000 +0800
++++ lab4/kern/mm/kmalloc.c	2019-04-19 09:31:14.000000000 +0800
+@@ -0,0 +1,305 @@
++#include <defs.h>
++#include <list.h>
++#include <memlayout.h>
++#include <assert.h>
++#include <kmalloc.h>
++#include <sync.h>
++#include <pmm.h>
++#include <stdio.h>
++
++/*
++ * SLOB Allocator: Simple List Of Blocks
++ *
++ * Matt Mackall <mpm@selenic.com> 12/30/03
++ *
++ * How SLOB works:
++ *
++ * The core of SLOB is a traditional K&R style heap allocator, with
++ * support for returning aligned objects. The granularity of this
++ * allocator is 8 bytes on x86, though it's perhaps possible to reduce
++ * this to 4 if it's deemed worth the effort. The slob heap is a
++ * singly-linked list of pages from __get_free_page, grown on demand
++ * and allocation from the heap is currently first-fit.
++ *
++ * Above this is an implementation of kmalloc/kfree. Blocks returned
++ * from kmalloc are 8-byte aligned and prepended with a 8-byte header.
++ * If kmalloc is asked for objects of PAGE_SIZE or larger, it calls
++ * __get_free_pages directly so that it can return page-aligned blocks
++ * and keeps a linked list of such pages and their orders. These
++ * objects are detected in kfree() by their page alignment.
++ *
++ * SLAB is emulated on top of SLOB by simply calling constructors and
++ * destructors for every SLAB allocation. Objects are returned with
++ * the 8-byte alignment unless the SLAB_MUST_HWCACHE_ALIGN flag is
++ * set, in which case the low-level allocator will fragment blocks to
++ * create the proper alignment. Again, objects of page-size or greater
++ * are allocated by calling __get_free_pages. As SLAB objects know
++ * their size, no separate size bookkeeping is necessary and there is
++ * essentially no allocation space overhead.
++ */
++
++
++//some helper
++#define spin_lock_irqsave(l, f) local_intr_save(f)
++#define spin_unlock_irqrestore(l, f) local_intr_restore(f)
++typedef unsigned int gfp_t;
++#ifndef PAGE_SIZE
++#define PAGE_SIZE PGSIZE
++#endif
++
++#ifndef L1_CACHE_BYTES
++#define L1_CACHE_BYTES 64
++#endif
++
++#ifndef ALIGN
++#define ALIGN(addr,size)   (((addr)+(size)-1)&(~((size)-1))) 
++#endif
++
++
++struct slob_block {
++	int units;
++	struct slob_block *next;
++};
++typedef struct slob_block slob_t;
++
++#define SLOB_UNIT sizeof(slob_t)
++#define SLOB_UNITS(size) (((size) + SLOB_UNIT - 1)/SLOB_UNIT)
++#define SLOB_ALIGN L1_CACHE_BYTES
++
++struct bigblock {
++	int order;
++	void *pages;
++	struct bigblock *next;
++};
++typedef struct bigblock bigblock_t;
++
++static slob_t arena = { .next = &arena, .units = 1 };
++static slob_t *slobfree = &arena;
++static bigblock_t *bigblocks;
++
++
++static void* __slob_get_free_pages(gfp_t gfp, int order)
++{
++  struct Page * page = alloc_pages(1 << order);
++  if(!page)
++    return NULL;
++  return page2kva(page);
++}
++
++#define __slob_get_free_page(gfp) __slob_get_free_pages(gfp, 0)
++
++static inline void __slob_free_pages(unsigned long kva, int order)
++{
++  free_pages(kva2page(kva), 1 << order);
++}
++
++static void slob_free(void *b, int size);
++
++static void *slob_alloc(size_t size, gfp_t gfp, int align)
++{
++  assert( (size + SLOB_UNIT) < PAGE_SIZE );
++
++	slob_t *prev, *cur, *aligned = 0;
++	int delta = 0, units = SLOB_UNITS(size);
++	unsigned long flags;
++
++	spin_lock_irqsave(&slob_lock, flags);
++	prev = slobfree;
++	for (cur = prev->next; ; prev = cur, cur = cur->next) {
++		if (align) {
++			aligned = (slob_t *)ALIGN((unsigned long)cur, align);
++			delta = aligned - cur;
++		}
++		if (cur->units >= units + delta) { /* room enough? */
++			if (delta) { /* need to fragment head to align? */
++				aligned->units = cur->units - delta;
++				aligned->next = cur->next;
++				cur->next = aligned;
++				cur->units = delta;
++				prev = cur;
++				cur = aligned;
++			}
++
++			if (cur->units == units) /* exact fit? */
++				prev->next = cur->next; /* unlink */
++			else { /* fragment */
++				prev->next = cur + units;
++				prev->next->units = cur->units - units;
++				prev->next->next = cur->next;
++				cur->units = units;
++			}
++
++			slobfree = prev;
++			spin_unlock_irqrestore(&slob_lock, flags);
++			return cur;
++		}
++		if (cur == slobfree) {
++			spin_unlock_irqrestore(&slob_lock, flags);
++
++			if (size == PAGE_SIZE) /* trying to shrink arena? */
++				return 0;
++
++			cur = (slob_t *)__slob_get_free_page(gfp);
++			if (!cur)
++				return 0;
++
++			slob_free(cur, PAGE_SIZE);
++			spin_lock_irqsave(&slob_lock, flags);
++			cur = slobfree;
++		}
++	}
++}
++
++static void slob_free(void *block, int size)
++{
++	slob_t *cur, *b = (slob_t *)block;
++	unsigned long flags;
++
++	if (!block)
++		return;
++
++	if (size)
++		b->units = SLOB_UNITS(size);
++
++	/* Find reinsertion point */
++	spin_lock_irqsave(&slob_lock, flags);
++	for (cur = slobfree; !(b > cur && b < cur->next); cur = cur->next)
++		if (cur >= cur->next && (b > cur || b < cur->next))
++			break;
++
++	if (b + b->units == cur->next) {
++		b->units += cur->next->units;
++		b->next = cur->next->next;
++	} else
++		b->next = cur->next;
++
++	if (cur + cur->units == b) {
++		cur->units += b->units;
++		cur->next = b->next;
++	} else
++		cur->next = b;
++
++	slobfree = cur;
++
++	spin_unlock_irqrestore(&slob_lock, flags);
++}
++
++
++
++void
++slob_init(void) {
++  cprintf("use SLOB allocator\n");
++}
++
++inline void 
++kmalloc_init(void) {
++    slob_init();
++    cprintf("kmalloc_init() succeeded!\n");
++}
++
++size_t
++slob_allocated(void) {
++  return 0;
++}
++
++size_t
++kallocated(void) {
++   return slob_allocated();
++}
++
++static int find_order(int size)
++{
++	int order = 0;
++	for ( ; size > 4096 ; size >>=1)
++		order++;
++	return order;
++}
++
++static void *__kmalloc(size_t size, gfp_t gfp)
++{
++	slob_t *m;
++	bigblock_t *bb;
++	unsigned long flags;
++
++	if (size < PAGE_SIZE - SLOB_UNIT) {
++		m = slob_alloc(size + SLOB_UNIT, gfp, 0);
++		return m ? (void *)(m + 1) : 0;
++	}
++
++	bb = slob_alloc(sizeof(bigblock_t), gfp, 0);
++	if (!bb)
++		return 0;
++
++	bb->order = find_order(size);
++	bb->pages = (void *)__slob_get_free_pages(gfp, bb->order);
++
++	if (bb->pages) {
++		spin_lock_irqsave(&block_lock, flags);
++		bb->next = bigblocks;
++		bigblocks = bb;
++		spin_unlock_irqrestore(&block_lock, flags);
++		return bb->pages;
++	}
++
++	slob_free(bb, sizeof(bigblock_t));
++	return 0;
++}
++
++void *
++kmalloc(size_t size)
++{
++  return __kmalloc(size, 0);
++}
++
++
++void kfree(void *block)
++{
++	bigblock_t *bb, **last = &bigblocks;
++	unsigned long flags;
++
++	if (!block)
++		return;
++
++	if (!((unsigned long)block & (PAGE_SIZE-1))) {
++		/* might be on the big block list */
++		spin_lock_irqsave(&block_lock, flags);
++		for (bb = bigblocks; bb; last = &bb->next, bb = bb->next) {
++			if (bb->pages == block) {
++				*last = bb->next;
++				spin_unlock_irqrestore(&block_lock, flags);
++				__slob_free_pages((unsigned long)block, bb->order);
++				slob_free(bb, sizeof(bigblock_t));
++				return;
++			}
++		}
++		spin_unlock_irqrestore(&block_lock, flags);
++	}
++
++	slob_free((slob_t *)block - 1, 0);
++	return;
++}
++
++
++unsigned int ksize(const void *block)
++{
++	bigblock_t *bb;
++	unsigned long flags;
++
++	if (!block)
++		return 0;
++
++	if (!((unsigned long)block & (PAGE_SIZE-1))) {
++		spin_lock_irqsave(&block_lock, flags);
++		for (bb = bigblocks; bb; bb = bb->next)
++			if (bb->pages == block) {
++				spin_unlock_irqrestore(&slob_lock, flags);
++				return PAGE_SIZE << bb->order;
++			}
++		spin_unlock_irqrestore(&block_lock, flags);
++	}
++
++	return ((slob_t *)block - 1)->units * SLOB_UNIT;
++}
++
++
++
+diff -uNr lab3/kern/mm/kmalloc.h lab4/kern/mm/kmalloc.h
+--- lab3/kern/mm/kmalloc.h	1970-01-01 08:00:00.000000000 +0800
++++ lab4/kern/mm/kmalloc.h	2019-04-19 09:31:14.000000000 +0800
+@@ -0,0 +1,14 @@
++#ifndef __KERN_MM_KMALLOC_H__
++#define __KERN_MM_KMALLOC_H__
++
++#include <defs.h>
++
++#define KMALLOC_MAX_ORDER       10
++
++void kmalloc_init(void);
++
++void *kmalloc(size_t n);
++void kfree(void *objp);
++
++#endif /* !__KERN_MM_KMALLOC_H__ */
++
+diff -uNr lab3/kern/mm/memlayout.h lab4/kern/mm/memlayout.h
+--- lab3/kern/mm/memlayout.h	2019-05-03 20:45:20.304907937 +0800
++++ lab4/kern/mm/memlayout.h	2019-04-19 09:31:14.000000000 +0800
+@@ -127,6 +127,7 @@
+     unsigned int nr_free;           // # of free pages in this free list
+ } free_area_t;
+ 
++
+ #endif /* !__ASSEMBLER__ */
+ 
+ #endif /* !__KERN_MM_MEMLAYOUT_H__ */
+diff -uNr lab3/kern/mm/pmm.c lab4/kern/mm/pmm.c
+--- lab3/kern/mm/pmm.c	2019-05-05 11:40:32.337231333 +0800
++++ lab4/kern/mm/pmm.c	2019-04-19 09:31:14.000000000 +0800
+@@ -10,6 +10,7 @@
+ #include <error.h>
+ #include <swap.h>
+ #include <vmm.h>
++#include <kmalloc.h>
+ 
+ /* *
+  * Task State Segment:
+@@ -77,16 +78,16 @@
+  *   - 0x28:  defined for tss, initialized in gdt_init
+  * */
+ static struct segdesc gdt[] = {
+-        SEG_NULL,
+-        [SEG_KTEXT] = SEG(STA_X | STA_R, 0x0, 0xFFFFFFFF, DPL_KERNEL),
+-        [SEG_KDATA] = SEG(STA_W, 0x0, 0xFFFFFFFF, DPL_KERNEL),
+-        [SEG_UTEXT] = SEG(STA_X | STA_R, 0x0, 0xFFFFFFFF, DPL_USER),
+-        [SEG_UDATA] = SEG(STA_W, 0x0, 0xFFFFFFFF, DPL_USER),
+-        [SEG_TSS]   = SEG_NULL,
++    SEG_NULL,
++    [SEG_KTEXT] = SEG(STA_X | STA_R, 0x0, 0xFFFFFFFF, DPL_KERNEL),
++    [SEG_KDATA] = SEG(STA_W, 0x0, 0xFFFFFFFF, DPL_KERNEL),
++    [SEG_UTEXT] = SEG(STA_X | STA_R, 0x0, 0xFFFFFFFF, DPL_USER),
++    [SEG_UDATA] = SEG(STA_W, 0x0, 0xFFFFFFFF, DPL_USER),
++    [SEG_TSS]   = SEG_NULL,
+ };
+ 
+ static struct pseudodesc gdt_pd = {
+-        sizeof(gdt) - 1, (uintptr_t)gdt
++    sizeof(gdt) - 1, (uintptr_t)gdt
+ };
+ 
+ static void check_alloc_page(void);
+@@ -144,37 +145,37 @@
+     pmm_manager->init();
+ }
+ 
+-//init_memmap - call pmm->init_memmap to build Page struct for free memory
++//init_memmap - call pmm->init_memmap to build Page struct for free memory  
+ static void
+ init_memmap(struct Page *base, size_t n) {
+     pmm_manager->init_memmap(base, n);
+ }
+ 
+-//alloc_pages - call pmm->alloc_pages to allocate a continuous n*PAGESIZE memory
++//alloc_pages - call pmm->alloc_pages to allocate a continuous n*PAGESIZE memory 
+ struct Page *
+ alloc_pages(size_t n) {
+     struct Page *page=NULL;
+     bool intr_flag;
+-
++    
+     while (1)
+     {
+-        local_intr_save(intr_flag);
+-        {
+-            page = pmm_manager->alloc_pages(n);
+-        }
+-        local_intr_restore(intr_flag);
+-
+-        if (page != NULL || n > 1 || swap_init_ok == 0) break;
+-
+-        extern struct mm_struct *check_mm_struct;
+-        //cprintf("page %x, call swap_out in alloc_pages %d\n",page, n);
+-        swap_out(check_mm_struct, n, 0);
++         local_intr_save(intr_flag);
++         {
++              page = pmm_manager->alloc_pages(n);
++         }
++         local_intr_restore(intr_flag);
++
++         if (page != NULL || n > 1 || swap_init_ok == 0) break;
++         
++         extern struct mm_struct *check_mm_struct;
++         //cprintf("page %x, call swap_out in alloc_pages %d\n",page, n);
++         swap_out(check_mm_struct, n, 0);
+     }
+     //cprintf("n %d,get page %x, No %d in alloc_pages\n",n,page,(page-pages));
+     return page;
+ }
+ 
+-//free_pages - call pmm->free_pages to free a continuous n*PAGESIZE memory
++//free_pages - call pmm->free_pages to free a continuous n*PAGESIZE memory 
+ void
+ free_pages(struct Page *base, size_t n) {
+     bool intr_flag;
+@@ -185,7 +186,7 @@
+     local_intr_restore(intr_flag);
+ }
+ 
+-//nr_free_pages - call pmm->nr_free_pages to get the size (nr*PAGESIZE)
++//nr_free_pages - call pmm->nr_free_pages to get the size (nr*PAGESIZE) 
+ //of current free memory
+ size_t
+ nr_free_pages(void) {
+@@ -257,7 +258,7 @@
+ //  la:   linear address of this memory need to map (after x86 segment map)
+ //  size: memory size
+ //  pa:   physical address of this memory
+-//  perm: permission of this memory
++//  perm: permission of this memory  
+ static void
+ boot_map_segment(pde_t *pgdir, uintptr_t la, size_t size, uintptr_t pa, uint32_t perm) {
+     assert(PGOFF(la) == PGOFF(pa));
+@@ -271,7 +272,7 @@
+     }
+ }
+ 
+-//boot_alloc_page - allocate one page using pmm->alloc_pages(1)
++//boot_alloc_page - allocate one page using pmm->alloc_pages(1) 
+ // return value: the kernel virtual address of this allocated page
+ //note: this function is used to get the memory for PDT(Page Directory Table)&PT(Page Table)
+ static void *
+@@ -283,17 +284,17 @@
+     return page2kva(p);
+ }
+ 
+-//pmm_init - setup a pmm to manage physical memory, build PDT&PT to setup paging mechanism
++//pmm_init - setup a pmm to manage physical memory, build PDT&PT to setup paging mechanism 
+ //         - check the correctness of pmm & paging mechanism, print PDT&PT
+ void
+ pmm_init(void) {
+     // We've already enabled paging
+     boot_cr3 = PADDR(boot_pgdir);
+ 
+-    //We need to alloc/free the physical memory (granularity is 4KB or other size).
++    //We need to alloc/free the physical memory (granularity is 4KB or other size). 
+     //So a framework of physical memory manager (struct pmm_manager)is defined in pmm.h
+     //First we should init a physical memory manager(pmm) based on the framework.
+-    //Then pmm can alloc/free the physical memory.
++    //Then pmm can alloc/free the physical memory. 
+     //Now the first_fit/best_fit/worst_fit/buddy_system pmm are available.
+     init_pmm_manager();
+ 
+@@ -327,6 +328,8 @@
+     check_boot_pgdir();
+ 
+     print_pgdir();
++    
++    kmalloc_init();
+ 
+ }
+ 
+@@ -372,19 +375,6 @@
+     }
+     return NULL;          // (8) return page table entry
+ #endif
+-    pde_t *pdep=&pgdir[PDX(la)];
+-    if(!(*pdep & PTE_P))
+-    {
+-        struct Page *page;
+-        if (!create || (page = alloc_page()) == NULL) {
+-            return NULL;
+-        }
+-        set_page_ref(page,1);
+-        uintptr_t pa=page2pa(page);
+-        memset(KADDR(pa),0,PGSIZE);
+-        *pdep= pa|PTE_P|PTE_W|PTE_U;
+-    }
+-    return &((pte_t *)KADDR(PDE_ADDR(*pdep)))[PTX(la)];
+ }
+ 
+ //get_page - get related Page struct for linear address la using PDT pgdir
+@@ -402,7 +392,7 @@
+ 
+ //page_remove_pte - free an Page sturct which is related linear address la
+ //                - and clean(invalidate) pte which is related linear address la
+-//note: PT is changed, so the TLB need to be invalidate
++//note: PT is changed, so the TLB need to be invalidate 
+ static inline void
+ page_remove_pte(pde_t *pgdir, uintptr_t la, pte_t *ptep) {
+     /* LAB2 EXERCISE 3: YOUR CODE
+@@ -430,17 +420,6 @@
+                                   //(6) flush tlb
+     }
+ #endif
+-    if(*ptep & PTE_P)
+-    {
+-        struct Page *page= pte2page(*ptep);
+-        if(page_ref_dec(page)==0)
+-            // if(i==0)
+-        {
+-            free_page(page);
+-        }
+-        *ptep=0;
+-        tlb_invalidate(pgdir, la);
+-    }
+ }
+ 
+ //page_remove - free an Page which is related linear address la and has an validated pte
+@@ -459,7 +438,7 @@
+ //  la:    the linear address need to map
+ //  perm:  the permission of this Page which is setted in related pte
+ // return value: always 0
+-//note: PT is changed, so the TLB need to be invalidate
++//note: PT is changed, so the TLB need to be invalidate 
+ int
+ page_insert(pde_t *pgdir, struct Page *page, uintptr_t la, uint32_t perm) {
+     pte_t *ptep = get_pte(pgdir, la, 1);
+@@ -490,7 +469,7 @@
+     }
+ }
+ 
+-// pgdir_alloc_page - call alloc_page & page_insert functions to
++// pgdir_alloc_page - call alloc_page & page_insert functions to 
+ //                  - allocate a page size memory & setup an addr map
+ //                  - pa<->la with linear address la and the PDT pgdir
+ struct Page *
+@@ -622,7 +601,7 @@
+ //  table:       the beginning addr of table
+ //  left_store:  the pointer of the high side of table's next range
+ //  right_store: the pointer of the low side of table's next range
+-// return value: 0 - not a invalid item range, perm - a valid item range with perm permission
++// return value: 0 - not a invalid item range, perm - a valid item range with perm permission 
+ static int
+ get_pgtable_items(size_t left, size_t right, size_t start, uintptr_t *table, size_t *left_store, size_t *right_store) {
+     if (start >= right) {
+@@ -663,25 +642,3 @@
+     }
+     cprintf("--------------------- END ---------------------\n");
+ }
+-
+-void *
+-kmalloc(size_t n) {
+-    void * ptr=NULL;
+-    struct Page *base=NULL;
+-    assert(n > 0 && n < 1024*0124);
+-    int num_pages=(n+PGSIZE-1)/PGSIZE;
+-    base = alloc_pages(num_pages);
+-    assert(base != NULL);
+-    ptr=page2kva(base);
+-    return ptr;
+-}
+-
+-void
+-kfree(void *ptr, size_t n) {
+-    assert(n > 0 && n < 1024*0124);
+-    assert(ptr != NULL);
+-    struct Page *base=NULL;
+-    int num_pages=(n+PGSIZE-1)/PGSIZE;
+-    base = kva2page(ptr);
+-    free_pages(base, num_pages);
+-}
+\ 文件尾没有 newline 字符
+diff -uNr lab3/kern/mm/pmm.h lab4/kern/mm/pmm.h
+--- lab3/kern/mm/pmm.h	2019-05-03 20:45:20.304907937 +0800
++++ lab4/kern/mm/pmm.h	2019-04-19 09:31:14.000000000 +0800
+@@ -7,6 +7,10 @@
+ #include <atomic.h>
+ #include <assert.h>
+ 
++/* fork flags used in do_fork*/
++#define CLONE_VM            0x00000100  // set if VM shared between processes
++#define CLONE_THREAD        0x00000200  // thread group
++
+ // pmm_manager is a physical memory management class. A special pmm manager - XXX_pmm_manager
+ // only needs to implement the methods in pmm_manager class, then XXX_pmm_manager can be used
+ // by ucore to manage the total physical memory space.
+@@ -140,7 +144,5 @@
+ 
+ extern char bootstack[], bootstacktop[];
+ 
+-extern void * kmalloc(size_t n);
+-extern void kfree(void *ptr, size_t n);
+ #endif /* !__KERN_MM_PMM_H__ */
+ 
+diff -uNr lab3/kern/mm/swap_fifo.c lab4/kern/mm/swap_fifo.c
+--- lab3/kern/mm/swap_fifo.c	2019-05-05 00:27:08.776770812 +0800
++++ lab4/kern/mm/swap_fifo.c	2019-04-19 09:31:14.000000000 +0800
+@@ -51,7 +51,6 @@
+     //record the page access situlation
+     /*LAB3 EXERCISE 2: YOUR CODE*/ 
+     //(1)link the most recent arrival page at the back of the pra_list_head qeueue.
+-    list_add(head, entry);
+     return 0;
+ }
+ /*
+@@ -68,12 +67,6 @@
+      /*LAB3 EXERCISE 2: YOUR CODE*/ 
+      //(1)  unlink the  earliest arrival page in front of pra_list_head qeueue
+      //(2)  assign the value of *ptr_page to the addr of this page
+-     list_entry_t *le = head->prev;
+-     assert(head!=le);
+-     struct Page *p = le2page(le, pra_page_link);
+-     list_del(le);
+-     assert(p !=NULL);
+-     *ptr_page = p;
+      return 0;
+ }
+ 
+diff -uNr lab3/kern/mm/vmm.c lab4/kern/mm/vmm.c
+--- lab3/kern/mm/vmm.c	2019-05-05 11:23:52.743131709 +0800
++++ lab4/kern/mm/vmm.c	2019-04-19 09:31:14.000000000 +0800
+@@ -7,6 +7,7 @@
+ #include <pmm.h>
+ #include <x86.h>
+ #include <swap.h>
++#include <kmalloc.h>
+ 
+ /* 
+   vmm design include two parts: mm_struct (mm) & vma_struct (vma)
+@@ -145,9 +146,9 @@
+     list_entry_t *list = &(mm->mmap_list), *le;
+     while ((le = list_next(list)) != list) {
+         list_del(le);
+-        kfree(le2vma(le, list_link),sizeof(struct vma_struct));  //kfree vma        
++        kfree(le2vma(le, list_link));  //kfree vma        
+     }
+-    kfree(mm, sizeof(struct mm_struct)); //kfree mm
++    kfree(mm); //kfree mm
+     mm=NULL;
+ }
+ 
+@@ -166,8 +167,6 @@
+     check_vma_struct();
+     check_pgfault();
+ 
+-    assert(nr_free_pages_store == nr_free_pages());
+-
+     cprintf("check_vmm() succeeded.\n");
+ }
+ 
+@@ -228,8 +227,6 @@
+ 
+     mm_destroy(mm);
+ 
+-    assert(nr_free_pages_store == nr_free_pages());
+-
+     cprintf("check_vma_struct() succeeded!\n");
+ }
+ 
+@@ -367,7 +364,6 @@
+ #if 0
+     /*LAB3 EXERCISE 1: YOUR CODE*/
+     ptep = ???              //(1) try to find a pte, if pte's PT(Page Table) isn't existed, then create a PT.
+-    
+     if (*ptep == 0) {
+                             //(2) if the phy addr isn't exist, then alloc a page & map the phy addr with logical addr
+ 
+@@ -397,37 +393,6 @@
+         }
+    }
+ #endif
+-   if((ptep=get_pte(mm->pgdir,addr,1))==NULL)  
+-   {
+-      cprintf("do_pgfault failed: get_pte return NULL");
+-     goto failed;
+-   }
+-   if(*ptep == 0)
+-   {
+-      if(pgdir_alloc_page(mm->pgdir,addr,perm)==NULL)
+-      {
+-           cprintf("do_pgfault failed: pgdir_alloc_page return NULL");
+-           goto failed;
+-
+-      }
+-   }
+-   else
+-   {
+-      if(swap_init_ok) {
+-            struct Page *page=NULL;
+-             if ((ret = swap_in(mm, addr, &page)) != 0) {
+-                cprintf("do_pgfault failed: swap_in returned not 0\n");
+-                goto failed;
+-            }
+-            page_insert(mm->pgdir, page, addr, perm);
+-            swap_map_swappable(mm, addr, page, 1);
+-            page->pra_vaddr = addr;
+-      }
+-      else {
+-            cprintf("no swap_init_ok but ptep is %x, failed\n",*ptep);
+-            goto failed;
+-        }
+-   }
+    ret = 0;
+ failed:
+     return ret;
+diff -uNr lab3/kern/mm/vmm.h lab4/kern/mm/vmm.h
+--- lab3/kern/mm/vmm.h	2019-05-03 20:45:20.304907937 +0800
++++ lab4/kern/mm/vmm.h	2019-04-19 09:31:14.000000000 +0800
+@@ -32,7 +32,7 @@
+     struct vma_struct *mmap_cache; // current accessed vma, used for speed purpose
+     pde_t *pgdir;                  // the PDT of these vma
+     int map_count;                 // the count of these vma
+-    void *sm_priv;                   // the private data for swap manager
++    void *sm_priv;                 // the private data for swap manager
+ };
+ 
+ struct vma_struct *find_vma(struct mm_struct *mm, uintptr_t addr);
+diff -uNr lab3/kern/process/entry.S lab4/kern/process/entry.S
+--- lab3/kern/process/entry.S	1970-01-01 08:00:00.000000000 +0800
++++ lab4/kern/process/entry.S	2019-04-19 09:31:14.000000000 +0800
+@@ -0,0 +1,10 @@
++.text
++.globl kernel_thread_entry
++kernel_thread_entry:        # void kernel_thread(void)
++
++    pushl %edx              # push arg
++    call *%ebx              # call fn
++
++    pushl %eax              # save the return value of fn(arg)
++    call do_exit            # call do_exit to terminate current thread
++
+diff -uNr lab3/kern/process/proc.c lab4/kern/process/proc.c
+--- lab3/kern/process/proc.c	1970-01-01 08:00:00.000000000 +0800
++++ lab4/kern/process/proc.c	2019-04-19 09:31:14.000000000 +0800
+@@ -0,0 +1,372 @@
++#include <proc.h>
++#include <kmalloc.h>
++#include <string.h>
++#include <sync.h>
++#include <pmm.h>
++#include <error.h>
++#include <sched.h>
++#include <elf.h>
++#include <vmm.h>
++#include <trap.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <assert.h>
++
++/* ------------- process/thread mechanism design&implementation -------------
++(an simplified Linux process/thread mechanism )
++introduction:
++  ucore implements a simple process/thread mechanism. process contains the independent memory sapce, at least one threads
++for execution, the kernel data(for management), processor state (for context switch), files(in lab6), etc. ucore needs to
++manage all these details efficiently. In ucore, a thread is just a special kind of process(share process's memory).
++------------------------------
++process state       :     meaning               -- reason
++    PROC_UNINIT     :   uninitialized           -- alloc_proc
++    PROC_SLEEPING   :   sleeping                -- try_free_pages, do_wait, do_sleep
++    PROC_RUNNABLE   :   runnable(maybe running) -- proc_init, wakeup_proc, 
++    PROC_ZOMBIE     :   almost dead             -- do_exit
++
++-----------------------------
++process state changing:
++                                            
++  alloc_proc                                 RUNNING
++      +                                   +--<----<--+
++      +                                   + proc_run +
++      V                                   +-->---->--+ 
++PROC_UNINIT -- proc_init/wakeup_proc --> PROC_RUNNABLE -- try_free_pages/do_wait/do_sleep --> PROC_SLEEPING --
++                                           A      +                                                           +
++                                           |      +--- do_exit --> PROC_ZOMBIE                                +
++                                           +                                                                  + 
++                                           -----------------------wakeup_proc----------------------------------
++-----------------------------
++process relations
++parent:           proc->parent  (proc is children)
++children:         proc->cptr    (proc is parent)
++older sibling:    proc->optr    (proc is younger sibling)
++younger sibling:  proc->yptr    (proc is older sibling)
++-----------------------------
++related syscall for process:
++SYS_exit        : process exit,                           -->do_exit
++SYS_fork        : create child process, dup mm            -->do_fork-->wakeup_proc
++SYS_wait        : wait process                            -->do_wait
++SYS_exec        : after fork, process execute a program   -->load a program and refresh the mm
++SYS_clone       : create child thread                     -->do_fork-->wakeup_proc
++SYS_yield       : process flag itself need resecheduling, -- proc->need_sched=1, then scheduler will rescheule this process
++SYS_sleep       : process sleep                           -->do_sleep 
++SYS_kill        : kill process                            -->do_kill-->proc->flags |= PF_EXITING
++                                                                 -->wakeup_proc-->do_wait-->do_exit   
++SYS_getpid      : get the process's pid
++
++*/
++
++// the process set's list
++list_entry_t proc_list;
++
++#define HASH_SHIFT          10
++#define HASH_LIST_SIZE      (1 << HASH_SHIFT)
++#define pid_hashfn(x)       (hash32(x, HASH_SHIFT))
++
++// has list for process set based on pid
++static list_entry_t hash_list[HASH_LIST_SIZE];
++
++// idle proc
++struct proc_struct *idleproc = NULL;
++// init proc
++struct proc_struct *initproc = NULL;
++// current proc
++struct proc_struct *current = NULL;
++
++static int nr_process = 0;
++
++void kernel_thread_entry(void);
++void forkrets(struct trapframe *tf);
++void switch_to(struct context *from, struct context *to);
++
++// alloc_proc - alloc a proc_struct and init all fields of proc_struct
++static struct proc_struct *
++alloc_proc(void) {
++    struct proc_struct *proc = kmalloc(sizeof(struct proc_struct));
++    if (proc != NULL) {
++    //LAB4:EXERCISE1 YOUR CODE
++    /*
++     * below fields in proc_struct need to be initialized
++     *       enum proc_state state;                      // Process state
++     *       int pid;                                    // Process ID
++     *       int runs;                                   // the running times of Proces
++     *       uintptr_t kstack;                           // Process kernel stack
++     *       volatile bool need_resched;                 // bool value: need to be rescheduled to release CPU?
++     *       struct proc_struct *parent;                 // the parent process
++     *       struct mm_struct *mm;                       // Process's memory management field
++     *       struct context context;                     // Switch here to run process
++     *       struct trapframe *tf;                       // Trap frame for current interrupt
++     *       uintptr_t cr3;                              // CR3 register: the base addr of Page Directroy Table(PDT)
++     *       uint32_t flags;                             // Process flag
++     *       char name[PROC_NAME_LEN + 1];               // Process name
++     */
++    }
++    return proc;
++}
++
++// set_proc_name - set the name of proc
++char *
++set_proc_name(struct proc_struct *proc, const char *name) {
++    memset(proc->name, 0, sizeof(proc->name));
++    return memcpy(proc->name, name, PROC_NAME_LEN);
++}
++
++// get_proc_name - get the name of proc
++char *
++get_proc_name(struct proc_struct *proc) {
++    static char name[PROC_NAME_LEN + 1];
++    memset(name, 0, sizeof(name));
++    return memcpy(name, proc->name, PROC_NAME_LEN);
++}
++
++// get_pid - alloc a unique pid for process
++static int
++get_pid(void) {
++    static_assert(MAX_PID > MAX_PROCESS);
++    struct proc_struct *proc;
++    list_entry_t *list = &proc_list, *le;
++    static int next_safe = MAX_PID, last_pid = MAX_PID;
++    if (++ last_pid >= MAX_PID) {
++        last_pid = 1;
++        goto inside;
++    }
++    if (last_pid >= next_safe) {
++    inside:
++        next_safe = MAX_PID;
++    repeat:
++        le = list;
++        while ((le = list_next(le)) != list) {
++            proc = le2proc(le, list_link);
++            if (proc->pid == last_pid) {
++                if (++ last_pid >= next_safe) {
++                    if (last_pid >= MAX_PID) {
++                        last_pid = 1;
++                    }
++                    next_safe = MAX_PID;
++                    goto repeat;
++                }
++            }
++            else if (proc->pid > last_pid && next_safe > proc->pid) {
++                next_safe = proc->pid;
++            }
++        }
++    }
++    return last_pid;
++}
++
++// proc_run - make process "proc" running on cpu
++// NOTE: before call switch_to, should load  base addr of "proc"'s new PDT
++void
++proc_run(struct proc_struct *proc) {
++    if (proc != current) {
++        bool intr_flag;
++        struct proc_struct *prev = current, *next = proc;
++        local_intr_save(intr_flag);
++        {
++            current = proc;
++            load_esp0(next->kstack + KSTACKSIZE);
++            lcr3(next->cr3);
++            switch_to(&(prev->context), &(next->context));
++        }
++        local_intr_restore(intr_flag);
++    }
++}
++
++// forkret -- the first kernel entry point of a new thread/process
++// NOTE: the addr of forkret is setted in copy_thread function
++//       after switch_to, the current proc will execute here.
++static void
++forkret(void) {
++    forkrets(current->tf);
++}
++
++// hash_proc - add proc into proc hash_list
++static void
++hash_proc(struct proc_struct *proc) {
++    list_add(hash_list + pid_hashfn(proc->pid), &(proc->hash_link));
++}
++
++// find_proc - find proc frome proc hash_list according to pid
++struct proc_struct *
++find_proc(int pid) {
++    if (0 < pid && pid < MAX_PID) {
++        list_entry_t *list = hash_list + pid_hashfn(pid), *le = list;
++        while ((le = list_next(le)) != list) {
++            struct proc_struct *proc = le2proc(le, hash_link);
++            if (proc->pid == pid) {
++                return proc;
++            }
++        }
++    }
++    return NULL;
++}
++
++// kernel_thread - create a kernel thread using "fn" function
++// NOTE: the contents of temp trapframe tf will be copied to 
++//       proc->tf in do_fork-->copy_thread function
++int
++kernel_thread(int (*fn)(void *), void *arg, uint32_t clone_flags) {
++    struct trapframe tf;
++    memset(&tf, 0, sizeof(struct trapframe));
++    tf.tf_cs = KERNEL_CS;
++    tf.tf_ds = tf.tf_es = tf.tf_ss = KERNEL_DS;
++    tf.tf_regs.reg_ebx = (uint32_t)fn;
++    tf.tf_regs.reg_edx = (uint32_t)arg;
++    tf.tf_eip = (uint32_t)kernel_thread_entry;
++    return do_fork(clone_flags | CLONE_VM, 0, &tf);
++}
++
++// setup_kstack - alloc pages with size KSTACKPAGE as process kernel stack
++static int
++setup_kstack(struct proc_struct *proc) {
++    struct Page *page = alloc_pages(KSTACKPAGE);
++    if (page != NULL) {
++        proc->kstack = (uintptr_t)page2kva(page);
++        return 0;
++    }
++    return -E_NO_MEM;
++}
++
++// put_kstack - free the memory space of process kernel stack
++static void
++put_kstack(struct proc_struct *proc) {
++    free_pages(kva2page((void *)(proc->kstack)), KSTACKPAGE);
++}
++
++// copy_mm - process "proc" duplicate OR share process "current"'s mm according clone_flags
++//         - if clone_flags & CLONE_VM, then "share" ; else "duplicate"
++static int
++copy_mm(uint32_t clone_flags, struct proc_struct *proc) {
++    assert(current->mm == NULL);
++    /* do nothing in this project */
++    return 0;
++}
++
++// copy_thread - setup the trapframe on the  process's kernel stack top and
++//             - setup the kernel entry point and stack of process
++static void
++copy_thread(struct proc_struct *proc, uintptr_t esp, struct trapframe *tf) {
++    proc->tf = (struct trapframe *)(proc->kstack + KSTACKSIZE) - 1;
++    *(proc->tf) = *tf;
++    proc->tf->tf_regs.reg_eax = 0;
++    proc->tf->tf_esp = esp;
++    proc->tf->tf_eflags |= FL_IF;
++
++    proc->context.eip = (uintptr_t)forkret;
++    proc->context.esp = (uintptr_t)(proc->tf);
++}
++
++/* do_fork -     parent process for a new child process
++ * @clone_flags: used to guide how to clone the child process
++ * @stack:       the parent's user stack pointer. if stack==0, It means to fork a kernel thread.
++ * @tf:          the trapframe info, which will be copied to child process's proc->tf
++ */
++int
++do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf) {
++    int ret = -E_NO_FREE_PROC;
++    struct proc_struct *proc;
++    if (nr_process >= MAX_PROCESS) {
++        goto fork_out;
++    }
++    ret = -E_NO_MEM;
++    //LAB4:EXERCISE2 YOUR CODE
++    /*
++     * Some Useful MACROs, Functions and DEFINEs, you can use them in below implementation.
++     * MACROs or Functions:
++     *   alloc_proc:   create a proc struct and init fields (lab4:exercise1)
++     *   setup_kstack: alloc pages with size KSTACKPAGE as process kernel stack
++     *   copy_mm:      process "proc" duplicate OR share process "current"'s mm according clone_flags
++     *                 if clone_flags & CLONE_VM, then "share" ; else "duplicate"
++     *   copy_thread:  setup the trapframe on the  process's kernel stack top and
++     *                 setup the kernel entry point and stack of process
++     *   hash_proc:    add proc into proc hash_list
++     *   get_pid:      alloc a unique pid for process
++     *   wakeup_proc:  set proc->state = PROC_RUNNABLE
++     * VARIABLES:
++     *   proc_list:    the process set's list
++     *   nr_process:   the number of process set
++     */
++
++    //    1. call alloc_proc to allocate a proc_struct
++    //    2. call setup_kstack to allocate a kernel stack for child process
++    //    3. call copy_mm to dup OR share mm according clone_flag
++    //    4. call copy_thread to setup tf & context in proc_struct
++    //    5. insert proc_struct into hash_list && proc_list
++    //    6. call wakeup_proc to make the new child process RUNNABLE
++    //    7. set ret vaule using child proc's pid
++fork_out:
++    return ret;
++
++bad_fork_cleanup_kstack:
++    put_kstack(proc);
++bad_fork_cleanup_proc:
++    kfree(proc);
++    goto fork_out;
++}
++
++// do_exit - called by sys_exit
++//   1. call exit_mmap & put_pgdir & mm_destroy to free the almost all memory space of process
++//   2. set process' state as PROC_ZOMBIE, then call wakeup_proc(parent) to ask parent reclaim itself.
++//   3. call scheduler to switch to other process
++int
++do_exit(int error_code) {
++    panic("process exit!!.\n");
++}
++
++// init_main - the second kernel thread used to create user_main kernel threads
++static int
++init_main(void *arg) {
++    cprintf("this initproc, pid = %d, name = \"%s\"\n", current->pid, get_proc_name(current));
++    cprintf("To U: \"%s\".\n", (const char *)arg);
++    cprintf("To U: \"en.., Bye, Bye. :)\"\n");
++    return 0;
++}
++
++// proc_init - set up the first kernel thread idleproc "idle" by itself and 
++//           - create the second kernel thread init_main
++void
++proc_init(void) {
++    int i;
++
++    list_init(&proc_list);
++    for (i = 0; i < HASH_LIST_SIZE; i ++) {
++        list_init(hash_list + i);
++    }
++
++    if ((idleproc = alloc_proc()) == NULL) {
++        panic("cannot alloc idleproc.\n");
++    }
++
++    idleproc->pid = 0;
++    idleproc->state = PROC_RUNNABLE;
++    idleproc->kstack = (uintptr_t)bootstack;
++    idleproc->need_resched = 1;
++    set_proc_name(idleproc, "idle");
++    nr_process ++;
++
++    current = idleproc;
++
++    int pid = kernel_thread(init_main, "Hello world!!", 0);
++    if (pid <= 0) {
++        panic("create init_main failed.\n");
++    }
++
++    initproc = find_proc(pid);
++    set_proc_name(initproc, "init");
++
++    assert(idleproc != NULL && idleproc->pid == 0);
++    assert(initproc != NULL && initproc->pid == 1);
++}
++
++// cpu_idle - at the end of kern_init, the first kernel thread idleproc will do below works
++void
++cpu_idle(void) {
++    while (1) {
++        if (current->need_resched) {
++            schedule();
++        }
++    }
++}
++
+diff -uNr lab3/kern/process/proc.h lab4/kern/process/proc.h
+--- lab3/kern/process/proc.h	1970-01-01 08:00:00.000000000 +0800
++++ lab4/kern/process/proc.h	2019-04-19 09:31:14.000000000 +0800
+@@ -0,0 +1,77 @@
++#ifndef __KERN_PROCESS_PROC_H__
++#define __KERN_PROCESS_PROC_H__
++
++#include <defs.h>
++#include <list.h>
++#include <trap.h>
++#include <memlayout.h>
++
++
++// process's state in his life cycle
++enum proc_state {
++    PROC_UNINIT = 0,  // uninitialized
++    PROC_SLEEPING,    // sleeping
++    PROC_RUNNABLE,    // runnable(maybe running)
++    PROC_ZOMBIE,      // almost dead, and wait parent proc to reclaim his resource
++};
++
++// Saved registers for kernel context switches.
++// Don't need to save all the %fs etc. segment registers,
++// because they are constant across kernel contexts.
++// Save all the regular registers so we don't need to care
++// which are caller save, but not the return register %eax.
++// (Not saving %eax just simplifies the switching code.)
++// The layout of context must match code in switch.S.
++struct context {
++    uint32_t eip;
++    uint32_t esp;
++    uint32_t ebx;
++    uint32_t ecx;
++    uint32_t edx;
++    uint32_t esi;
++    uint32_t edi;
++    uint32_t ebp;
++};
++
++#define PROC_NAME_LEN               15
++#define MAX_PROCESS                 4096
++#define MAX_PID                     (MAX_PROCESS * 2)
++
++extern list_entry_t proc_list;
++
++struct proc_struct {
++    enum proc_state state;                      // Process state
++    int pid;                                    // Process ID
++    int runs;                                   // the running times of Proces
++    uintptr_t kstack;                           // Process kernel stack
++    volatile bool need_resched;                 // bool value: need to be rescheduled to release CPU?
++    struct proc_struct *parent;                 // the parent process
++    struct mm_struct *mm;                       // Process's memory management field
++    struct context context;                     // Switch here to run process
++    struct trapframe *tf;                       // Trap frame for current interrupt
++    uintptr_t cr3;                              // CR3 register: the base addr of Page Directroy Table(PDT)
++    uint32_t flags;                             // Process flag
++    char name[PROC_NAME_LEN + 1];               // Process name
++    list_entry_t list_link;                     // Process link list 
++    list_entry_t hash_link;                     // Process hash list
++};
++
++#define le2proc(le, member)         \
++    to_struct((le), struct proc_struct, member)
++
++extern struct proc_struct *idleproc, *initproc, *current;
++
++void proc_init(void);
++void proc_run(struct proc_struct *proc);
++int kernel_thread(int (*fn)(void *), void *arg, uint32_t clone_flags);
++
++char *set_proc_name(struct proc_struct *proc, const char *name);
++char *get_proc_name(struct proc_struct *proc);
++void cpu_idle(void) __attribute__((noreturn));
++
++struct proc_struct *find_proc(int pid);
++int do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf);
++int do_exit(int error_code);
++
++#endif /* !__KERN_PROCESS_PROC_H__ */
++
+diff -uNr lab3/kern/process/switch.S lab4/kern/process/switch.S
+--- lab3/kern/process/switch.S	1970-01-01 08:00:00.000000000 +0800
++++ lab4/kern/process/switch.S	2019-04-19 09:31:14.000000000 +0800
+@@ -0,0 +1,30 @@
++.text
++.globl switch_to
++switch_to:                      # switch_to(from, to)
++
++    # save from's registers
++    movl 4(%esp), %eax          # eax points to from
++    popl 0(%eax)                # save eip !popl
++    movl %esp, 4(%eax)          # save esp::context of from
++    movl %ebx, 8(%eax)          # save ebx::context of from
++    movl %ecx, 12(%eax)         # save ecx::context of from
++    movl %edx, 16(%eax)         # save edx::context of from
++    movl %esi, 20(%eax)         # save esi::context of from
++    movl %edi, 24(%eax)         # save edi::context of from
++    movl %ebp, 28(%eax)         # save ebp::context of from
++
++    # restore to's registers
++    movl 4(%esp), %eax          # not 8(%esp): popped return address already
++                                # eax now points to to
++    movl 28(%eax), %ebp         # restore ebp::context of to
++    movl 24(%eax), %edi         # restore edi::context of to
++    movl 20(%eax), %esi         # restore esi::context of to
++    movl 16(%eax), %edx         # restore edx::context of to
++    movl 12(%eax), %ecx         # restore ecx::context of to
++    movl 8(%eax), %ebx          # restore ebx::context of to
++    movl 4(%eax), %esp          # restore esp::context of to
++
++    pushl 0(%eax)               # push eip
++
++    ret
++
+diff -uNr lab3/kern/schedule/sched.c lab4/kern/schedule/sched.c
+--- lab3/kern/schedule/sched.c	1970-01-01 08:00:00.000000000 +0800
++++ lab4/kern/schedule/sched.c	2019-04-19 09:31:14.000000000 +0800
+@@ -0,0 +1,41 @@
++#include <list.h>
++#include <sync.h>
++#include <proc.h>
++#include <sched.h>
++#include <assert.h>
++
++void
++wakeup_proc(struct proc_struct *proc) {
++    assert(proc->state != PROC_ZOMBIE && proc->state != PROC_RUNNABLE);
++    proc->state = PROC_RUNNABLE;
++}
++
++void
++schedule(void) {
++    bool intr_flag;
++    list_entry_t *le, *last;
++    struct proc_struct *next = NULL;
++    local_intr_save(intr_flag);
++    {
++        current->need_resched = 0;
++        last = (current == idleproc) ? &proc_list : &(current->list_link);
++        le = last;
++        do {
++            if ((le = list_next(le)) != &proc_list) {
++                next = le2proc(le, list_link);
++                if (next->state == PROC_RUNNABLE) {
++                    break;
++                }
++            }
++        } while (le != last);
++        if (next == NULL || next->state != PROC_RUNNABLE) {
++            next = idleproc;
++        }
++        next->runs ++;
++        if (next != current) {
++            proc_run(next);
++        }
++    }
++    local_intr_restore(intr_flag);
++}
++
+diff -uNr lab3/kern/schedule/sched.h lab4/kern/schedule/sched.h
+--- lab3/kern/schedule/sched.h	1970-01-01 08:00:00.000000000 +0800
++++ lab4/kern/schedule/sched.h	2019-04-19 09:31:14.000000000 +0800
+@@ -0,0 +1,10 @@
++#ifndef __KERN_SCHEDULE_SCHED_H__
++#define __KERN_SCHEDULE_SCHED_H__
++
++#include <proc.h>
++
++void schedule(void);
++void wakeup_proc(struct proc_struct *proc);
++
++#endif /* !__KERN_SCHEDULE_SCHED_H__ */
++
+diff -uNr lab3/kern/trap/trap.c lab4/kern/trap/trap.c
+--- lab3/kern/trap/trap.c	2019-05-05 11:13:52.641878372 +0800
++++ lab4/kern/trap/trap.c	2019-04-19 09:31:14.000000000 +0800
+@@ -48,12 +48,6 @@
+       *     You don't know the meaning of this instruction? just google it! and check the libs/x86.h to know more.
+       *     Notice: the argument of lidt is idt_pd. try to find it!
+       */
+-      extern uintptr_t __vectors[];
+-      int length=sizeof(idt) / sizeof(struct gatedesc);
+-      for(int i=0;i<length;i++)
+-          SETGATE(idt[i], 0, GD_KTEXT, __vectors[i], DPL_KERNEL);
+-      SETGATE(idt[T_SWITCH_TOK], 0, GD_KTEXT, __vectors[T_SWITCH_TOK], DPL_USER);
+-      lidt(&idt_pd);
+ }
+ 
+ static const char *
+@@ -192,8 +186,6 @@
+          * (2) Every TICK_NUM cycle, you can print some info using a funciton, such as print_ticks().
+          * (3) Too Simple? Yes, I think so!
+          */
+-        ticks ++;
+-        if(ticks % TICK_NUM==0)  print_ticks();
+         break;
+     case IRQ_OFFSET + IRQ_COM1:
+         c = cons_getc();
+diff -uNr lab3/kern/trap/trapentry.S lab4/kern/trap/trapentry.S
+--- lab3/kern/trap/trapentry.S	2019-05-03 20:45:20.304907937 +0800
++++ lab4/kern/trap/trapentry.S	2019-04-19 09:31:14.000000000 +0800
+@@ -42,3 +42,8 @@
+     addl $0x8, %esp
+     iret
+ 
++.globl forkrets
++forkrets:
++    # set stack to this new process's trapframe
++    movl 4(%esp), %esp
++    jmp __trapret
+diff -uNr lab3/libs/hash.c lab4/libs/hash.c
+--- lab3/libs/hash.c	1970-01-01 08:00:00.000000000 +0800
++++ lab4/libs/hash.c	2019-04-19 09:31:14.000000000 +0800
+@@ -0,0 +1,18 @@
++#include <stdlib.h>
++
++/* 2^31 + 2^29 - 2^25 + 2^22 - 2^19 - 2^16 + 1 */
++#define GOLDEN_RATIO_PRIME_32       0x9e370001UL
++
++/* *
++ * hash32 - generate a hash value in the range [0, 2^@bits - 1]
++ * @val:    the input value
++ * @bits:   the number of bits in a return value
++ *
++ * High bits are more random, so we use them.
++ * */
++uint32_t
++hash32(uint32_t val, unsigned int bits) {
++    uint32_t hash = val * GOLDEN_RATIO_PRIME_32;
++    return (hash >> (32 - bits));
++}
++
+diff -uNr lab3/libs/stdlib.h lab4/libs/stdlib.h
+--- lab3/libs/stdlib.h	2019-05-03 20:45:20.304907937 +0800
++++ lab4/libs/stdlib.h	2019-04-19 09:31:14.000000000 +0800
+@@ -1,6 +1,8 @@
+ #ifndef __LIBS_STDLIB_H__
+ #define __LIBS_STDLIB_H__
+ 
++#include <defs.h>
++
+ /* the largest number rand will return */
+ #define RAND_MAX    2147483647UL
+ 
+@@ -8,5 +10,8 @@
+ int rand(void);
+ void srand(unsigned int seed);
+ 
++/* libs/hash.c */
++uint32_t hash32(uint32_t val, unsigned int bits);
++
+ #endif /* !__LIBS_RAND_H__ */
+ 
+diff -uNr lab3/Makefile lab4/Makefile
+--- lab3/Makefile	2019-05-03 20:45:20.288908001 +0800
++++ lab4/Makefile	2019-04-19 09:31:14.000000000 +0800
+@@ -126,7 +126,9 @@
+ 			   kern/mm/ \
+ 			   kern/libs/ \
+ 			   kern/sync/ \
+-			   kern/fs/
++			   kern/fs/    \
++			   kern/process \
++			   kern/schedule
+ 
+ KSRCDIR		+= kern/init \
+ 			   kern/libs \
+@@ -135,7 +137,9 @@
+ 			   kern/trap \
+ 			   kern/mm \
+ 			   kern/sync \
+-			   kern/fs
++			   kern/fs    \
++			   kern/process \
++			   kern/schedule
+ 
+ KCFLAGS		+= $(addprefix -I,$(KINCLUDE))
+ 
+diff -uNr lab3/tools/grade.sh lab4/tools/grade.sh
+--- lab3/tools/grade.sh	2019-05-03 20:45:20.312907907 +0800
++++ lab4/tools/grade.sh	2019-04-19 09:31:14.000000000 +0800
+@@ -321,7 +321,7 @@
+ 
+ ## check now!!
+ 
+-quick_run 'Check SWAP'
++quick_run 'Check VMM'
+ 
+ pts=5
+ quick_check 'check pmm'                                         \
+@@ -338,7 +338,7 @@
+     '  |-- PTE(000e0) faf00000-fafe0000 000e0000 urw'           \
+     '  |-- PTE(00001) fafeb000-fafec000 00001000 -rw'
+ 
+-pts=10
++pts=25
+ quick_check 'check vmm'                                         \
+     'check_vma_struct() succeeded!'                             \
+     'page fault at 0x00000100: K/W [no page found].'            \
+@@ -361,9 +361,13 @@
+ 
+ pts=5
+ quick_check 'check ticks'                                       \
+-    '++ setup timer interrupts'                                 \
+-    '100 ticks'                                                 \
+-    'End of Test.'
++    '++ setup timer interrupts'
++
++pts=30
++quick_check 'check initproc'                                    \
++    'this initproc, pid = 1, name = "init"'                     \
++    'To U: "Hello world!!".'                                    \
++    'To U: "en.., Bye, Bye. :)"'
+ 
+ ## print final-score
+ show_final
