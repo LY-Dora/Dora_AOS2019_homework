@@ -493,6 +493,43 @@ do_pgfault(struct mm_struct *mm, uint32_t error_code, uintptr_t addr) {
         }
    }
 #endif
+    if((ptep=get_pte(mm->pgdir,addr,1))==NULL)
+    {
+        cprintf("do_pgfault failed: get_pte return NULL");
+        goto failed;
+    }
+    if(*ptep == 0)
+    {
+        if(pgdir_alloc_page(mm->pgdir,addr,perm)==NULL)
+        {
+            cprintf("do_pgfault failed: pgdir_alloc_page return NULL");
+            goto failed;
+
+        }
+    }
+    else
+    {
+        struct Page *page=NULL;//lab 5 added
+        cprintf("do pgfault: ptep %x, pte %x\n",ptep, *ptep);//lab5 added
+        if (*ptep & PTE_P) {
+            panic("error write a non-writable pte");
+        }
+        else {
+            if (swap_init_ok) {
+                //    struct Page *page=NULL;
+                if ((ret = swap_in(mm, addr, &page)) != 0) {
+                    cprintf("do_pgfault failed: swap_in returned not 0\n");
+                    goto failed;
+                }
+            } else {
+                cprintf("no swap_init_ok but ptep is %x, failed\n", *ptep);
+                goto failed;
+            }
+        }
+        page_insert(mm->pgdir, page, addr, perm);
+        swap_map_swappable(mm, addr, page, 1);
+        page->pra_vaddr = addr;
+    }
    ret = 0;
 failed:
     return ret;
