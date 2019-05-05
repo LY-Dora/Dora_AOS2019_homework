@@ -259,6 +259,7 @@ lab6的侧重点是进程调度，其需要填空的部分有`kern/schedule/defa
 #### `kern/process/proc.c`
 这部分主要是更新lab5的内容，将分配进程的进程结构初始化内容增加。
 主要是要初始化以下内容
+
 |    Value    |  Meaning   |
 | :---------: | :--------: |
 | struct run_queue *rq | running queue contains Process |
