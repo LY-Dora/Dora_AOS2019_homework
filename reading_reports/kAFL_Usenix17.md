@@ -15,18 +15,18 @@
 从图上可以大致将该方案分为两部分：一部分为Host部分，一部分为VM部分。
 Host部分有分为三部分：
 - KVM-PT
-    - KVM-PT实现了Intel PT的trace功能，用以负责收集目标内核程序的程序执行流信息
+    - KVM-PT实现了Intel PT的trace功能，用以收集目标内核程序的程序执行流信息
 - QEMU-PT
     - 等KVM-PT收集完控制流信息以后，QEMU-PT将其解压，是decoder
     - QEMU-PT还是KVM与kAFL交互的中间部分，KVM-PT与kAFL通过QEMU-PT进行交互
 - KAFL
-    - kAFL是本文提出的解决方案中fuzz的逻辑部分，基本上都是借鉴的AFL的思路，会通过反馈的覆盖率信息生成新的、更加高效的种子/输入
+    - kAFL是本文提出的解决方案中的fuzz逻辑部分，以反馈的覆盖率信息为导向，生成新的、更加高效的种子/输入
 
 VM部分分为两部分：
 - Target
     - Target部分是目标内核
 - Agent
-    - Agent是用以交互的中间件，用以与目标内核进行交互，比如说挂载镜像
+    - Agent是用以交互的中间件，用以与Target进行交互，做一些必要的操作，例如挂载镜像等。
 
 #### contribution
 - 操作系统独立性
