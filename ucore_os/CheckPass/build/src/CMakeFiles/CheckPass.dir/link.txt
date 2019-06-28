@@ -1,0 +1,1 @@
+/usr/bin/c++  -fPIC   -shared  -o libCheckPass.so CMakeFiles/CheckPass.dir/CheckPass.cpp.o  -L/usr/local/lib 

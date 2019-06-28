@@ -1,0 +1,6 @@
+/home/dora/Tsinghua_phd/AOS-project/ucore-new/CheckPass/build/CMakeFiles/edit_cache.dir
+/home/dora/Tsinghua_phd/AOS-project/ucore-new/CheckPass/build/CMakeFiles/rebuild_cache.dir
+/home/dora/Tsinghua_phd/AOS-project/ucore-new/CheckPass/build/CMakeFiles/intrinsics_gen.dir
+/home/dora/Tsinghua_phd/AOS-project/ucore-new/CheckPass/build/src/CMakeFiles/edit_cache.dir
+/home/dora/Tsinghua_phd/AOS-project/ucore-new/CheckPass/build/src/CMakeFiles/rebuild_cache.dir
+/home/dora/Tsinghua_phd/AOS-project/ucore-new/CheckPass/build/src/CMakeFiles/CheckPass.dir

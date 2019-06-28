@@ -39,21 +39,23 @@
 
 ### Evaluation of non-scalable lock performance
 本文用了四个Linux内核中的测试集对non-scalable lock进行测试，从而说明非扩展锁的多核性能。
-![image](https://github.com/LY-Dora/Dora_AOS2019_homework/blob/master/reading_reports/non-scalable_lock/fig.png)
+![image](https://github.com/LY-Dora/Dora_AOS2019_homework/raw/master/reading_reports/non-scalable_lock/fig.png)
 
 ### Why does the performance of ticket lock collapse
 作者使用马尔可夫模型进行模拟，如下图所示。
-![image](https://github.com/LY-Dora/Dora_AOS2019_homework/blob/master/reading_reports/non-scalable_lock/fig2.png)
+![image](https://github.com/LY-Dora/Dora_AOS2019_homework/raw/master/reading_reports/non-scalable_lock/fig2.png)
 
 该图表示n个核心的票证旋转锁定的Markov模型。 状态i表示i核心持有或等待锁定。
 ai是已经有i核争用锁的新核的到达率。 si是i + 1核心竞争时的服务率。
 一共有n种状态，代表着现在有n个核在等待。
 当已经有k个核获取了锁：则有新的核获取锁的概率为：
-![image](https://github.com/LY-Dora/Dora_AOS2019_homework/blob/master/reading_reports/non-scalable_lock/fig3.png)
+![image](https://github.com/LY-Dora/Dora_AOS2019_homework/raw/master/reading_reports/non-scalable_lock/fig3.png)
+
 其中1/a代表着一个核获取锁的可能。
 
 释放锁的概率为：
-![image](https://github.com/LY-Dora/Dora_AOS2019_homework/blob/master/reading_reports/non-scalable_lock/fig4.png)
+![image](https://github.com/LY-Dora/Dora_AOS2019_homework/raw/master/reading_reports/non-scalable_lock/fig4.png)
+
 其中s代表着cs区域所需要的周期数，c为home directory回复一个request所消耗周期数，k/2是k个request顺利找到下一个ticket平均需要的次数。
 
 假设P0,P1…,PnP0,P1…,Pn为整个稳态系统处于各个状态的概率，则有以下等式：
@@ -61,16 +63,20 @@ ai是已经有i核争用锁的新核的到达率。 si是i + 1核心竞争时的
 Pk∗ak=Pk+1∗Sk+1
 
 所有P加起来为1，可以推出来
-![image](https://github.com/LY-Dora/Dora_AOS2019_homework/blob/master/reading_reports/non-scalable_lock/fig5.png)
+![image](https://github.com/LY-Dora/Dora_AOS2019_homework/raw/master/reading_reports/non-scalable_lock/fig5.png)
+
 因此可以知道一个锁有少核心等待的概率，并算出期望值：
-![image](https://github.com/LY-Dora/Dora_AOS2019_homework/blob/master/reading_reports/non-scalable_lock/fig6.png)
+![image](https://github.com/LY-Dora/Dora_AOS2019_homework/raw/master/reading_reports/non-scalable_lock/fig6.png)
 
 由上可知，当整个系统具有n-w内核时，可以达到最大加速。因此，当核数超过n-w时，其性能不会再上升。
 
 此外，如下图所示：
 
-![image](https://github.com/LY-Dora/Dora_AOS2019_homework/blob/master/reading_reports/non-scalable_lock/fig7.png)
-![image](https://github.com/LY-Dora/Dora_AOS2019_homework/blob/master/reading_reports/non-scalable_lock/fig8.png)
+![image](https://github.com/LY-Dora/Dora_AOS2019_homework/raw/master/reading_reports/non-scalable_lock/fig7.png)
+
+![image](https://github.com/LY-Dora/Dora_AOS2019_homework/raw/master/reading_reports/non-scalable_lock/fig8.png)
+
+
 
 第一个测试是选用了固定的cs区域内周期数与非临界区周期数，并选用不同的比例进行测试。
 第二个测试是固定临界区所占比例不变，改变临界区的周期数。观察不同的临界区长度对
@@ -79,7 +85,9 @@ Pk∗ak=Pk+1∗Sk+1
 
 ### Evaluation of scalable lock performance
 作者又使用MCS锁做了与ticket lock同样的性能测试，其结果如下。该结果说明了扩展锁能够避免性能急剧下降。
-![image](https://github.com/LY-Dora/Dora_AOS2019_homework/blob/master/reading_reports/non-scalable_lock/fig9.png)
+![image](https://github.com/LY-Dora/Dora_AOS2019_homework/raw/master/reading_reports/non-scalable_lock/fig9.png)
+
+
 
 
 ### Conclusion

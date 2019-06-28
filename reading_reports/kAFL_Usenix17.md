@@ -9,24 +9,32 @@
 
 这篇论文使用利用硬件特性的方式处理对内核fuzz可能遇到的问题：这篇论文使用Intel-PT以及VT-x对目标操作系统的内核进行fuzz。这两项技术的结合使用使得作者提出的方案能够独立于目标操作系统，因为只需要一个与目标操作系统交互的小型用户态组件即可。因此，即使在内核崩溃的情况下，kAFL都不会有过多的性能开销。
 #### Design && implement 
-![](https://i.imgur.com/m60SVNV.png)
+![img](https://camo.githubusercontent.com/9d3f23dc07bb5a5d8af965a6304e87a43a7b10f2/68747470733a2f2f692e696d6775722e636f6d2f6d363053564e562e706e67)
+
+
 
 根据该图我们可以看到，KAFL的实现是模块化的，因此其扩展性好，修改会更加灵活。
 从图上可以大致将该方案分为两部分：一部分为Host部分，一部分为VM部分。
 Host部分有分为三部分：
+
 - KVM-PT
-    - KVM-PT实现了Intel PT的trace功能，用以收集目标内核程序的程序执行流信息
+    - KVM-PT主要是实现了Intel PT的trace功能，用以收集目标内核程序的程序执行流信息，从而方便fuzz逻辑部分对其进行分析生成新的种子
 - QEMU-PT
     - 等KVM-PT收集完控制流信息以后，QEMU-PT将其解压，是decoder
     - QEMU-PT还是KVM与kAFL交互的中间部分，KVM-PT与kAFL通过QEMU-PT进行交互
+    - KVM-PT先将trace发给QEMU-PT解码，QEMU-PT解码后再将解码后的信息发给kAFL去fuzz生成种子
 - KAFL
-    - kAFL是本文提出的解决方案中的fuzz逻辑部分，以反馈的覆盖率信息为导向，生成新的、更加高效的种子/输入
+    - kAFL是本文提出的解决方案中的fuzz逻辑部分，其参考了AFL也以反馈的覆盖率信息为导向，变异生成新的、更加高效的种子/输入。
+    - kAFL能够并发fuzz
+    - kAFL也用bitmap存储基本块的转换，通过QEMU-PT获取bitmap，然后决定变异生成怎样的种子去触发更“有趣”的路径
 
 VM部分分为两部分：
 - Target
     - Target部分是目标内核
 - Agent
     - Agent是用以交互的中间件，用以与Target进行交互，做一些必要的操作，例如挂载镜像等。
+    - Agent通常是将KVM-PT传过来的hypercalls信息当作目标内核的输入
+    - Agent通过调用hypercall的方式与目标内核交互，作为目标内核的输入信息，尝试触发crash。
 
 #### contribution
 - 操作系统独立性
