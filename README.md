@@ -9,4 +9,3 @@ The homeworks on the Advanced Operating System course at Tsinghua University.
 
 ### Project
 - [ucore-os](https://github.com/LY-Dora/Dora_AOS2019_homework/tree/master/ucore_os)
-- [Mid-Report](https://github.com/LY-Dora/Dora_AOS2019_homework/blob/master/ucore_os/Mid-Report.md)

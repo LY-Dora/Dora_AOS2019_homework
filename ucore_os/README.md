@@ -6,15 +6,15 @@ A secured [µCore](https://github.com/chyyuu/ucore_os_lab) designed by Dora & On
 
 1. Build
 
-~~~sh
+```sh
 make
-~~~
+```
 
 2. Run
 
-~~~sh
+```sh
 make qemu-nox
-~~~
+```
 
 
 
@@ -88,9 +88,9 @@ make qemu-nox
 
 防御成功的现象为：
 
-![1561750057392](C:\Users\Dora\AppData\Roaming\Typora\typora-user-images\1561750057392.png)
-
+![](https://i.imgur.com/WVjQQM5.png)
 
 
 > 该仓库或许会持续更新或修复，若本人能够解决实验报告中提到的尚未解决的问题。
+
 
